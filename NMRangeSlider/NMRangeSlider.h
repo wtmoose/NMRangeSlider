@@ -49,6 +49,8 @@
 // minimum value for right thumb
 @property(assign, nonatomic) float upperMinimumValue;
 
+// default NO. If YES, lower slider will push upper slider (and vise versa) when miminum range reached
+@property (assign, nonatomic) BOOL pushEnabled;
 
 @property (assign, nonatomic) BOOL lowerHandleHidden;
 @property (assign, nonatomic) BOOL upperHandleHidden;

@@ -35,6 +35,7 @@ NSUInteger DeviceSystemMajorVersion() {
 @property (retain, nonatomic) UIImageView* upperHandle;
 @property (retain, nonatomic) UIImageView* track;
 @property (retain, nonatomic) UIImageView* trackBackground;
+@property (retain, nonatomic) UIImageView* pushHandle;
 
 @end
 
@@ -367,6 +368,12 @@ NSUInteger DeviceSystemMajorVersion() {
     return _upperHandleImageHighlighted;
 }
 
+- (void)setPushEnabled:(BOOL)pushEnabled
+{
+    _pushEnabled = pushEnabled;
+    _pushHandle = nil;
+}
+
 // ------------------------------------------------------------------------------------------------------
 
 #pragma mark -
@@ -380,7 +387,9 @@ NSUInteger DeviceSystemMajorVersion() {
     float value = _minimumValue + (x-_padding) / (self.frame.size.width-(_padding*2)) * (_maximumValue - _minimumValue);
     
     value = MAX(value, _minimumValue);
-    value = MIN(value, _upperValue - _minimumRange);
+    if (!self.pushEnabled) {
+        value = MIN(value, _upperValue - _minimumRange);
+    }
     
     return value;
 }
@@ -394,7 +403,9 @@ NSUInteger DeviceSystemMajorVersion() {
     float value = _minimumValue + (x-_padding) / (self.frame.size.width-(_padding*2)) * (_maximumValue - _minimumValue);
     
     value = MIN(value, _maximumValue);
-    value = MAX(value, _lowerValue+_minimumRange);
+    if (!self.pushEnabled) {
+        value = MAX(value, _lowerValue+_minimumRange);
+    }
     
     return value;
 }
@@ -597,33 +608,47 @@ NSUInteger DeviceSystemMajorVersion() {
     return YES;
 }
 
-
 -(BOOL)continueTrackingWithTouch:(UITouch *)touch withEvent:(UIEvent *)event
 {
     if(!_lowerHandle.highlighted && !_upperHandle.highlighted ){
         return YES;
     }
     
+    //detect and enable push mode
     CGPoint touchPoint = [touch locationInView:self];
+    if (self.pushEnabled && !_pushHandle && _lowerValue + _minimumRange >= _upperValue) {
+        CGPoint previousTouchPoint = [touch previousLocationInView:self];
+        if (touchPoint.x > previousTouchPoint.x) {
+            _pushHandle = _lowerHandle;
+            if (!_upperHandle.highlighted) {
+                _upperHandle.highlighted = YES;
+                _upperTouchOffset = previousTouchPoint.x - _upperHandle.center.x;
+            }
+        } else {
+            _pushHandle = _upperHandle;
+            if (!_lowerHandle.highlighted) {
+                _lowerHandle.highlighted = YES;
+                _lowerTouchOffset = previousTouchPoint.x - _lowerHandle.center.x;
+            }
+        }
+    }
     
     if(_lowerHandle.highlighted)
     {
         //get new lower value based on the touch location.
         //This is automatically contained within a valid range.
         float newValue = [self lowerValueForCenterX:(touchPoint.x - _lowerTouchOffset)];
-        
-        //if both upper and lower is selected, then the new value must be LOWER
-        //otherwise the touch event is ignored.
-        if(!_upperHandle.highlighted || newValue<_lowerValue)
-        {
+
+        // decide if upper handle should be un-highlighted
+        if (_upperHandle.highlighted && newValue < _lowerValue && _upperHandle != _pushHandle) {
             _upperHandle.highlighted=NO;
             [self bringSubviewToFront:_lowerHandle];
-            
-            [self setLowerValue:newValue animated:_stepValueContinuously ? YES : NO];
+            _pushHandle = nil;
         }
-        else
-        {
-            _lowerHandle.highlighted=NO;
+
+        //decide if the upper value should be updated
+        if (newValue < _lowerValue || !_upperHandle.highlighted || _lowerHandle == _pushHandle) {
+            [self setLowerValue:newValue animated:_stepValueContinuously ? YES : NO];
         }
     }
     
@@ -631,20 +656,18 @@ NSUInteger DeviceSystemMajorVersion() {
     {
         float newValue = [self upperValueForCenterX:(touchPoint.x - _upperTouchOffset)];
 
-        //if both upper and lower is selected, then the new value must be HIGHER
-        //otherwise the touch event is ignored.
-        if(!_lowerHandle.highlighted || newValue>_upperValue)
-        {
+        // decide if lower handle should be un-highlighted
+        if (_lowerHandle.highlighted && newValue > _upperValue && _lowerHandle != _pushHandle) {
             _lowerHandle.highlighted=NO;
             [self bringSubviewToFront:_upperHandle];
+            _pushHandle = nil;
+        }
+        
+        //decide if the upper value should be updated
+        if (newValue > _upperValue || !_lowerHandle.highlighted || _upperHandle == _pushHandle) {
             [self setUpperValue:newValue animated:_stepValueContinuously ? YES : NO];
         }
-        else
-        {
-            _upperHandle.highlighted=NO;
-        }
     }
-     
     
     //send the control event
     if(_continuous)
@@ -664,6 +687,7 @@ NSUInteger DeviceSystemMajorVersion() {
 {
     _lowerHandle.highlighted = NO;
     _upperHandle.highlighted = NO;
+    _pushHandle = nil;
     
     if(_stepValue>0)
     {
