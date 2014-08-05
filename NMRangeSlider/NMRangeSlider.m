@@ -491,26 +491,26 @@ NSUInteger DeviceSystemMajorVersion() {
 }
 
 //returms the rect of the tumb image for a given track rect and value
-- (CGRect)lowerThumbRectForValue:(float)value image:(UIImage*)thumbImage
+- (CGRect)lowerThumbRectForValue:(float)value handle:(UIImageView*)handle
 {
-    CGRect thumbRect = [self thumbRectForImage:thumbImage];
+    CGRect thumbRect = [self thumbRectForHandle:handle];
     CGFloat xValue = ((self.bounds.size.width-thumbRect.size.width-self.centersOffset)*((value - _minimumValue) / (_maximumValue - _minimumValue)));
-    return [self thumbRectForValue:value image:thumbImage thumbRect:thumbRect xValue:xValue];
+    return [self thumbRectForValue:value handle:handle thumbRect:thumbRect xValue:xValue];
 }
 
-- (CGRect)upperThumbRectForValue:(float)value image:(UIImage*)thumbImage
+- (CGRect)upperThumbRectForValue:(float)value handle:(UIImageView*)handle
 {
-    CGRect thumbRect = [self thumbRectForImage:thumbImage];
+    CGRect thumbRect = [self thumbRectForHandle:handle];
     float xValue = self.centersOffset + ((self.bounds.size.width-thumbRect.size.width-self.centersOffset)*((value - _minimumValue) / (_maximumValue - _minimumValue)));
-    return [self thumbRectForValue:value image:thumbImage thumbRect:thumbRect xValue:xValue];
+    return [self thumbRectForValue:value handle:handle thumbRect:thumbRect xValue:xValue];
 }
 
-- (CGRect)thumbRectForImage:(UIImage *)thumbImage
+- (CGRect)thumbRectForHandle:(UIImageView *)handle
 {
     CGRect thumbRect;
-    UIEdgeInsets insets = thumbImage.capInsets;
+    UIEdgeInsets insets = handle.image.capInsets;
     
-    thumbRect.size = CGSizeMake(thumbImage.size.width, thumbImage.size.height);
+    thumbRect.size = handle.bounds.size;
     
     if(insets.top || insets.bottom)
     {
@@ -519,15 +519,12 @@ NSUInteger DeviceSystemMajorVersion() {
     return thumbRect;
 }
 
-- (CGRect)thumbRectForValue:(float)value image:(UIImage*)thumbImage thumbRect:(CGRect)thumbRect xValue:(CGFloat)xValue
+- (CGRect)thumbRectForValue:(float)value handle:(UIImageView*)handle thumbRect:(CGRect)thumbRect xValue:(CGFloat)xValue
 {
     thumbRect.origin = CGPointMake(xValue, (self.bounds.size.height/2.0f) - (thumbRect.size.height/2.0f));
     CGFloat scale = [UIScreen mainScreen].scale;
-    thumbRect.size.width *= scale;
-    thumbRect.size.height *= scale;
-    thumbRect = CGRectIntegral(thumbRect);
-    thumbRect.size.width /= scale;
-    thumbRect.size.height /= scale;
+    thumbRect.origin.x = round(thumbRect.origin.x * scale) / scale;
+    thumbRect.origin.y = round(thumbRect.origin.y * scale) / scale;
     return thumbRect;
 }
 
@@ -552,12 +549,12 @@ NSUInteger DeviceSystemMajorVersion() {
     //------------------------------
     // Lower Handle Handle
     self.lowerHandle = [[UIImageView alloc] initWithImage:self.lowerHandleImageNormal highlightedImage:self.lowerHandleImageHighlighted];
-    self.lowerHandle.frame = [self lowerThumbRectForValue:_lowerValue image:self.lowerHandleImageNormal];
+    self.lowerHandle.frame = [self lowerThumbRectForValue:_lowerValue handle:self.lowerHandle];
     
     //------------------------------
     // Upper Handle Handle
     self.upperHandle = [[UIImageView alloc] initWithImage:self.upperHandleImageNormal highlightedImage:self.upperHandleImageHighlighted];
-    self.upperHandle.frame = [self upperThumbRectForValue:_upperValue image:self.upperHandleImageNormal];
+    self.upperHandle.frame = [self upperThumbRectForValue:_upperValue handle:self.upperHandle];
     
     [self addSubview:self.trackBackground];
     [self addSubview:self.track];
@@ -589,16 +586,18 @@ NSUInteger DeviceSystemMajorVersion() {
     self.track.image = [self trackImageForCurrentValues];
 
     // Layout the lower handle
-    self.lowerHandle.frame = [self lowerThumbRectForValue:_lowerValue image:self.lowerHandleImageNormal];
+    self.lowerHandle.frame = [self lowerThumbRectForValue:_lowerValue handle:self.lowerHandle];
     self.lowerHandle.image = self.lowerHandleImageNormal;
     self.lowerHandle.highlightedImage = self.lowerHandleImageHighlighted;
     self.lowerHandle.hidden = self.lowerHandleHidden;
     
     // Layoput the upper handle
-    self.upperHandle.frame = [self upperThumbRectForValue:_upperValue image:self.upperHandleImageNormal];
+    self.upperHandle.frame = [self upperThumbRectForValue:_upperValue handle:self.upperHandle];
     self.upperHandle.image = self.upperHandleImageNormal;
     self.upperHandle.highlightedImage = self.upperHandleImageHighlighted;
     self.upperHandle.hidden= self.upperHandleHidden;
+    
+    NSLog(@"lowerValue=%f, upperValue=%f, values=%f, centers=%f", _lowerValue, _upperValue, _upperValue - _lowerValue, self.upperHandle.center.x - self.lowerHandle.center.x);
     
 }
 
