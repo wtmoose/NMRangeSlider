@@ -29,6 +29,7 @@ NSUInteger DeviceSystemMajorVersion() {
     float _upperTouchOffset;
     float _stepValueInternal;
     BOOL _haveAddedSubviews;
+    CGPoint _touchDownPoint;
 }
 
 @property (retain, nonatomic) UIImageView* lowerHandle;
@@ -37,6 +38,8 @@ NSUInteger DeviceSystemMajorVersion() {
 @property (retain, nonatomic) UIImageView* trackBackground;
 @property (retain, nonatomic) UIImageView* pushHandle;
 @property (readonly, assign, nonatomic) CGFloat centersOffset;
+@property (weak, nonatomic) UILongPressGestureRecognizer *longPressRecognizer;
+@property (readwrite, assign, nonatomic) float touchScalingActive;
 
 @end
 
@@ -87,6 +90,7 @@ NSUInteger DeviceSystemMajorVersion() {
     _minimumRange = 0.0;
     _stepValue = 0.0;
     _stepValueInternal = 0.0;
+    _touchScale = 0.1;
     
     _continuous = YES;
     
@@ -522,10 +526,132 @@ NSUInteger DeviceSystemMajorVersion() {
 - (CGRect)thumbRectForValue:(float)value handle:(UIImageView*)handle thumbRect:(CGRect)thumbRect xValue:(CGFloat)xValue
 {
     thumbRect.origin = CGPointMake(xValue, (self.bounds.size.height/2.0f) - (thumbRect.size.height/2.0f));
-    CGFloat scale = [UIScreen mainScreen].scale;
-    thumbRect.origin.x = round(thumbRect.origin.x * scale) / scale;
-    thumbRect.origin.y = round(thumbRect.origin.y * scale) / scale;
+    thumbRect.origin = [self incrementalPointForPoint:thumbRect.origin];
     return thumbRect;
+}
+
+- (CGPoint)scaleTouchPoint:(CGPoint)point
+{
+    CGPoint delta = CGPointMake(point.x - _touchDownPoint.x, point.y - _touchDownPoint.y);
+    CGFloat scale = self. self.touchScalingActive ? self.touchScale : 1.0;
+    delta.x *= scale;
+    delta.y *= scale;
+    return CGPointMake(_touchDownPoint.x + delta.x, _touchDownPoint.y + delta.y);
+}
+
+- (CGPoint)incrementalPointForPoint:(CGPoint)point
+{
+    CGFloat scale = [UIScreen mainScreen].scale;
+    point.x = round(point.x * scale) / scale;
+    point.y = round(point.y * scale) / scale;
+    return point;
+}
+
+#pragma mark - Touch scaling
+
+- (void)setLongPressScalesTouches:(BOOL)longPressScalesTouches
+{
+    if (_longPressScalesTouches != longPressScalesTouches) {
+        _longPressScalesTouches = longPressScalesTouches;
+        if (longPressScalesTouches) {
+            UILongPressGestureRecognizer *longPress = [[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(handleLongPress:)];
+            self.longPressRecognizer = longPress;
+            self.longPressRecognizer.cancelsTouchesInView = NO;
+            // reduce allowable movement a lot because in this scenario, we're expecting
+            // slider movement and we don't want it to be interpreted as a long press
+            self.longPressRecognizer.allowableMovement = 2.0;
+            [self addGestureRecognizer:longPress];
+        } else {
+            [self removeGestureRecognizer:self.longPressRecognizer];
+        }
+    }
+}
+
+- (void)setTouchScalingActive:(float)touchScalingActive
+{
+    [self setTouchScalingActive:touchScalingActive animated:NO];
+}
+
+- (void)setTouchScalingActive:(float)touchScalingActive animated:(BOOL)animated
+{
+    if (_touchScalingActive != touchScalingActive) {
+        _touchScalingActive = touchScalingActive;
+        if (touchScalingActive) {
+            [self insertPressBackgroundView:self.touchScalingBackgroundView animated:animated];
+        } else {
+            [self removeLongPressBackgroundView:self.touchScalingBackgroundView animated:animated];
+        }
+    }
+}
+
+- (void)handleLongPress:(UILongPressGestureRecognizer *)longPress
+{
+    if (longPress.state == UIGestureRecognizerStateBegan) {
+        [self setTouchScalingActive:YES animated:YES];
+    } else if (longPress.state == UIGestureRecognizerStateEnded) {
+        [self setTouchScalingActive:NO animated:YES];
+    }
+}
+
+- (void)setTouchScalingBackgroundView:(UIView *)longPressBackgroundView
+{
+    if (_touchScalingBackgroundView != longPressBackgroundView) {
+        [self removeLongPressBackgroundView:_touchScalingBackgroundView animated:NO];
+        _touchScalingBackgroundView = longPressBackgroundView;
+        if (self.touchScalingActive) {
+            [self insertPressBackgroundView:longPressBackgroundView animated:NO];
+            [self setNeedsLayout];
+        }
+    }
+}
+
+- (void)insertPressBackgroundView:(UIView *)view animated:(BOOL)animated
+{
+    if (!view) { return; }
+    UIView *activeHandle = [self activeHandle];
+    if (!activeHandle) { return; }
+    view.center = activeHandle.center;
+    [self insertSubview:view belowSubview:activeHandle];
+    if (animated) {
+        CGFloat alpha = view.alpha;
+        CGAffineTransform transform = CGAffineTransformMakeScale(0.2, 0.2);
+        view.alpha = 0.25;
+        view.transform = transform;
+        [UIView animateWithDuration:0.4 delay:0 usingSpringWithDamping:0.8 initialSpringVelocity:0 options:UIViewAnimationOptionCurveEaseOut animations:^{
+            view.alpha = alpha;
+            view.transform = CGAffineTransformIdentity;
+        } completion:nil];
+    }
+}
+
+- (void)removeLongPressBackgroundView:(UIView *)view animated:(BOOL)animated
+{
+    if (!view) { return; }
+    if (animated) {
+        CGFloat alpha = view.alpha;
+        [UIView animateWithDuration:0.22 delay:0 usingSpringWithDamping:1 initialSpringVelocity:2 options:UIViewAnimationOptionCurveEaseOut animations:^{
+            view.transform = CGAffineTransformMakeScale(0.5, 0.5);
+            view.alpha = 0.0;
+        } completion:^(BOOL finished) {
+            view.alpha = alpha;
+            view.transform = CGAffineTransformIdentity;
+            [view removeFromSuperview];
+        }];
+    } else {
+        [view removeFromSuperview];
+    }
+}
+
+- (void)updateLongPressBackgroundLayout
+{
+    if (!self.touchScalingActive || !self.touchScalingBackgroundView) { return; }
+    UIView *active = [self activeHandle];
+    if (!active) { return; }
+    // TODO make origin incremental
+    self.touchScalingBackgroundView.center = active.center;
+    CGRect frame = self.touchScalingBackgroundView.frame;
+    frame.origin = [self incrementalPointForPoint:frame.origin];
+    self.touchScalingBackgroundView.frame = frame;
 }
 
 // ------------------------------------------------------------------------------------------------------
@@ -597,8 +723,7 @@ NSUInteger DeviceSystemMajorVersion() {
     self.upperHandle.highlightedImage = self.upperHandleImageHighlighted;
     self.upperHandle.hidden= self.upperHandleHidden;
     
-    NSLog(@"lowerValue=%f, upperValue=%f, values=%f, centers=%f", _lowerValue, _upperValue, _upperValue - _lowerValue, self.upperHandle.center.x - self.lowerHandle.center.x);
-    
+    [self updateLongPressBackgroundLayout];
 }
 
 - (CGSize)intrinsicContentSize
@@ -611,36 +736,29 @@ NSUInteger DeviceSystemMajorVersion() {
 #pragma mark -
 #pragma mark - Touch handling
 
-// The handle size can be a little small, so i make it a little bigger
-// TODO: Do it the correct way. I think wwdc 2012 had a video on it...
-- (CGRect) touchRectForHandle:(UIImageView*) handleImageView
+- (BOOL)pointInside:(CGPoint)point withEvent:(UIEvent *)event
 {
-    float xPadding = 5;
-    float yPadding = 5; //(self.bounds.size.height-touchRect.size.height)/2.0f
-
-    // expands rect by xPadding in both x-directions, and by yPadding in both y-directions
-    CGRect touchRect = CGRectInset(handleImageView.frame, -xPadding, -yPadding);;
-    return touchRect;
+    BOOL inside = [super pointInside:point withEvent:event];
+    if (inside) { return YES; }
+    return [self touchedHandleWithPoint:point] != nil;
 }
 
 -(BOOL) beginTrackingWithTouch:(UITouch *)touch withEvent:(UIEvent *)event
 {
     CGPoint touchPoint = [touch locationInView:self];
+    _touchDownPoint = touchPoint;
     
+    UIView *touched = [self touchedHandleWithPoint:touchPoint];
     
-    //Check both buttons upper and lower thumb handles because
-    //they could be on top of each other.
-    
-    if(CGRectContainsPoint([self touchRectForHandle:_lowerHandle], touchPoint))
+    if (touched == self.lowerHandle)
     {
         _lowerHandle.highlighted = YES;
         _lowerTouchOffset = touchPoint.x - _lowerHandle.center.x;
-    }
-    
-    if(CGRectContainsPoint([self touchRectForHandle:_upperHandle], touchPoint))
-    {
+        [self bringSubviewToFront:self.lowerHandle];
+    } else if (touched == self.upperHandle) {
         _upperHandle.highlighted = YES;
         _upperTouchOffset = touchPoint.x - _upperHandle.center.x;
+        [self bringSubviewToFront:self.upperHandle];
     }
     
     _stepValueInternal= _stepValueContinuously ? _stepValue : 0.0f;
@@ -655,10 +773,12 @@ NSUInteger DeviceSystemMajorVersion() {
     }
 
     CGPoint touchPoint = [touch locationInView:self];
+    touchPoint = [self scaleTouchPoint:touchPoint];
 
     if (self.pushEnabled && !_pushHandle && !(_lowerHandle.highlighted && _upperHandle.highlighted)) {
 
         CGPoint previousTouchPoint = [touch previousLocationInView:self];
+        previousTouchPoint = [self scaleTouchPoint:previousTouchPoint];
         CGFloat distance = touchPoint.x - previousTouchPoint.x;
         if (distance > 0 && _lowerHandle.highlighted) {
             float newLowerValue = [self lowerValueForCenterX:(touchPoint.x - _lowerTouchOffset)];
@@ -757,6 +877,50 @@ NSUInteger DeviceSystemMajorVersion() {
     }
     
     [self sendActionsForControlEvents:UIControlEventValueChanged];
+}
+
+- (UIImageView *)touchedHandleWithPoint:(CGPoint)point
+{
+    CGPoint lowerVector = CGPointMake(self.lowerHandle.center.x - point.x, self.lowerHandle.center.y - point.y);
+    CGPoint upperVector = CGPointMake(self.upperHandle.center.x - point.x, self.upperHandle.center.y - point.y);
+    
+    CGFloat lowerDistance = sqrt(lowerVector.x * lowerVector.x + lowerVector.y * lowerVector.y);
+    CGFloat upperDistance = sqrt(upperVector.x * upperVector.x + upperVector.y * upperVector.y);
+    
+    BOOL insideLower = CGRectContainsPoint(self.lowerHandle.frame, point);
+    BOOL insideUpper = CGRectContainsPoint(self.upperHandle.frame, point);
+    // select touched handle if touch inside one but not the other
+    if (insideLower && !insideUpper) {
+        lowerDistance = -1;
+    } else if (insideUpper && !insideLower) {
+        upperDistance = -1;
+    }
+    
+    if (lowerDistance > 22 && upperDistance > 22) { return nil; }
+    
+    // break tie if both same distance by selecting the one on top
+    if (lowerDistance == upperDistance) {
+        if ([self.subviews indexOfObject:self.lowerHandle] > [self.subviews indexOfObject:self.upperHandle]) {
+            lowerDistance = -1;
+        } else {
+            upperDistance = -1;
+        }
+    }
+    
+    return lowerDistance < upperDistance ? self.lowerHandle : self.upperHandle;
+}
+
+- (UIView *)activeHandle
+{
+    UIView *activeHandle = nil;
+    if (self.pushHandle) {
+        activeHandle = self.pushHandle;
+    } else if (self.lowerHandle.highlighted) {
+        activeHandle = self.lowerHandle;
+    } else if (self.upperHandle.highlighted) {
+        activeHandle = self.upperHandle;
+    }
+    return activeHandle;
 }
 
 @end

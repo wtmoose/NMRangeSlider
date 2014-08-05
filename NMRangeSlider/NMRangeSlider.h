@@ -56,6 +56,20 @@
 // default NO. If YES, lower slider will push upper slider (and vise versa) when miminum range reached
 @property (assign, nonatomic) BOOL pushEnabled;
 
+// default NO. If YES, long press on handle enables touch scaling, which can be used to provide
+// a fine-tuning mode.
+@property (assign, nonatomic) BOOL longPressScalesTouches;
+
+// default 0.1. Scale factor used when long press scaling is active
+@property (assign, nonatomic) float touchScale;
+
+// returns YES if touch scaling is currently active
+@property (readonly, assign, nonatomic) float touchScalingActive;
+
+// defualt nil. View used as a background behind the touched handle to highlight
+// long press mode. View's size should be bigger than the
+@property (retain, nonatomic) UIView *touchScalingBackgroundView;
+
 @property (assign, nonatomic) BOOL lowerHandleHidden;
 @property (assign, nonatomic) BOOL upperHandleHidden;
 
