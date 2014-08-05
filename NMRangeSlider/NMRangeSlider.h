@@ -49,6 +49,10 @@
 // minimum value for right thumb
 @property(assign, nonatomic) float upperMinimumValue;
 
+// default nil. Specifies how far apart the centers of the handles are when they reach the minimum range. Use this, for example,
+// to have the handles just touch at the minimum range by setting this value to one handle width.
+@property (strong, nonatomic) NSNumber *minimumRangeOffset;
+
 // default NO. If YES, lower slider will push upper slider (and vise versa) when miminum range reached
 @property (assign, nonatomic) BOOL pushEnabled;
 

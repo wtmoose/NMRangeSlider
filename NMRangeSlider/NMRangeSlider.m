@@ -36,6 +36,7 @@ NSUInteger DeviceSystemMajorVersion() {
 @property (retain, nonatomic) UIImageView* track;
 @property (retain, nonatomic) UIImageView* trackBackground;
 @property (retain, nonatomic) UIImageView* pushHandle;
+@property (readonly, assign, nonatomic) CGFloat centersOffset;
 
 @end
 
@@ -115,50 +116,46 @@ NSUInteger DeviceSystemMajorVersion() {
 
 - (void) setLowerValue:(float)lowerValue
 {
-    float value = lowerValue;
-    
-    if(_stepValueInternal>0)
-    {
-        value = roundf(value / _stepValueInternal) * _stepValueInternal;
-    }
-    
-    value = MIN(value, _maximumValue);
-    value = MAX(value, _minimumValue);
-    
-    if (!isnan(_lowerMaximumValue)) {
-        value = MIN(value, _lowerMaximumValue);
-    }
-    
-    value = MIN(value, _upperValue - _minimumRange);
-    
-    _lowerValue = value;
-    
-    [self setNeedsLayout];
+    [self setLowerValue:lowerValue upperValue:_upperValue];
 }
 
 - (void) setUpperValue:(float)upperValue
 {
-    float value = upperValue;
-    
-    if(_stepValueInternal>0)
-    {
-        value = roundf(value / _stepValueInternal) * _stepValueInternal;
-    }
-
-    value = MAX(value, _minimumValue);
-    value = MIN(value, _maximumValue);
-    
-    if (!isnan(_upperMinimumValue)) {
-        value = MAX(value, _upperMinimumValue);
-    }
-    
-    value = MAX(value, _lowerValue+_minimumRange);
-    
-    _upperValue = value;
-
-    [self setNeedsLayout];
+    [self setLowerValue:_lowerValue upperValue:upperValue];
 }
 
+- (void)setLowerValue:(float)lowerValue upperValue:(float)upperValue
+{
+    if(_stepValueInternal > 0) {
+        lowerValue = roundf(lowerValue / _stepValueInternal) * _stepValueInternal;
+        upperValue = roundf(upperValue / _stepValueInternal) * _stepValueInternal;
+    }
+    
+    lowerValue = MIN(lowerValue, _maximumValue);
+    lowerValue = MAX(lowerValue, _minimumValue);
+    
+    upperValue = MAX(upperValue, _minimumValue);
+    upperValue = MIN(upperValue, _maximumValue);
+
+    if (!isnan(_lowerMaximumValue)) {
+        lowerValue = MIN(lowerValue, _lowerMaximumValue);
+    }
+
+    if (!isnan(_upperMinimumValue)) {
+        upperValue = MAX(upperValue, _upperMinimumValue);
+    }
+
+    if (upperValue - _minimumRange < _minimumValue) {
+        upperValue = MAX(upperValue, lowerValue + _minimumRange);
+    } else {
+        lowerValue = MIN(lowerValue, upperValue - _minimumRange);
+    }
+
+    _lowerValue = lowerValue;
+    _upperValue = upperValue;
+    
+    [self setNeedsLayout];
+}
 
 - (void) setLowerValue:(float) lowerValue upperValue:(float) upperValue animated:(BOOL)animated
 {
@@ -170,13 +167,14 @@ NSUInteger DeviceSystemMajorVersion() {
     
     __block void (^setValuesBlock)(void) = ^ {
         
-        if(!isnan(lowerValue))
-        {
-            [self setLowerValue:lowerValue];
-        }
-        if(!isnan(upperValue))
-        {
+        if (isnan(lowerValue) && isnan(upperValue)) { return; }
+        
+        if (isnan(lowerValue)) {
             [self setUpperValue:upperValue];
+        } else if (isnan(upperValue)) {
+            [self setLowerValue:lowerValue];
+        } else {
+            [self setLowerValue:lowerValue upperValue:upperValue];
         }
         
     };
@@ -374,6 +372,14 @@ NSUInteger DeviceSystemMajorVersion() {
     _pushHandle = nil;
 }
 
+- (CGFloat)centersOffset
+{
+    if (!_minimumRangeOffset) { return 0.0; }
+    float scale = (CGRectGetWidth(self.frame) - CGRectGetWidth(self.upperHandle.frame)) / (_maximumValue - _minimumValue);
+    float minimumRangePoints = _minimumRange * scale;
+    return [_minimumRangeOffset floatValue] - minimumRangePoints;
+}
+
 // ------------------------------------------------------------------------------------------------------
 
 #pragma mark -
@@ -381,10 +387,10 @@ NSUInteger DeviceSystemMajorVersion() {
 
 //Returns the lower value based on the X potion
 //The return value is automatically adjust to fit inside the valid range
--(float) lowerValueForCenterX:(float)x
+-(float)lowerValueForCenterX:(float)x
 {
     float _padding = _lowerHandle.frame.size.width/2.0f;
-    float value = _minimumValue + (x-_padding) / (self.frame.size.width-(_padding*2)) * (_maximumValue - _minimumValue);
+    float value = _minimumValue + (x-_padding) / (self.frame.size.width-(_padding*2)-self.centersOffset) * (_maximumValue - _minimumValue);
     
     value = MAX(value, _minimumValue);
     if (!self.pushEnabled) {
@@ -394,13 +400,20 @@ NSUInteger DeviceSystemMajorVersion() {
     return value;
 }
 
+-(float)centerXForLowerValue:(float)value
+{
+    float _padding = _lowerHandle.frame.size.width/2.0f;
+    CGFloat x = _padding + (value - _minimumValue) * (self.frame.size.width-(_padding*2)-self.centersOffset) / (_maximumValue - _minimumValue);
+    return x;
+}
+
 //Returns the upper value based on the X potion
 //The return value is automatically adjust to fit inside the valid range
--(float) upperValueForCenterX:(float)x
+-(float)upperValueForCenterX:(float)x
 {
     float _padding = _upperHandle.frame.size.width/2.0;
     
-    float value = _minimumValue + (x-_padding) / (self.frame.size.width-(_padding*2)) * (_maximumValue - _minimumValue);
+    float value = _minimumValue + (x-_padding-self.centersOffset) / (self.frame.size.width-(_padding*2)-self.centersOffset) * (_maximumValue - _minimumValue);
     
     value = MIN(value, _maximumValue);
     if (!self.pushEnabled) {
@@ -408,6 +421,13 @@ NSUInteger DeviceSystemMajorVersion() {
     }
     
     return value;
+}
+
+-(float)centerXForUpperValue:(float)value
+{
+    float _padding = _upperHandle.frame.size.width/2.0;
+    float x = _padding + self.centersOffset + (value - _minimumValue) * (self.frame.size.width-(_padding*2)-self.centersOffset) / (_maximumValue - _minimumValue);
+    return x;
 }
 
 //returns the rect for the track image between the lower and upper values based on the trackimage object
@@ -427,8 +447,8 @@ NSUInteger DeviceSystemMajorVersion() {
     float lowerHandleWidth = _lowerHandleHidden ? 2.0f : _lowerHandle.frame.size.width;
     float upperHandleWidth = _upperHandleHidden ? 2.0f : _upperHandle.frame.size.width;
     
-    float xLowerValue = ((self.bounds.size.width - lowerHandleWidth) * (_lowerValue - _minimumValue) / (_maximumValue - _minimumValue))+(lowerHandleWidth/2.0f);
-    float xUpperValue = ((self.bounds.size.width - upperHandleWidth) * (_upperValue - _minimumValue) / (_maximumValue - _minimumValue))+(upperHandleWidth/2.0f);
+    float xLowerValue = ((self.bounds.size.width - lowerHandleWidth - self.centersOffset) * (_lowerValue - _minimumValue) / (_maximumValue - _minimumValue))+(lowerHandleWidth/2.0f);
+    float xUpperValue = self.centersOffset + ((self.bounds.size.width - upperHandleWidth - self.centersOffset) * (_upperValue - _minimumValue) / (_maximumValue - _minimumValue))+(upperHandleWidth/2.0f);
     
     retValue.origin = CGPointMake(xLowerValue, (self.bounds.size.height/2.0f) - (retValue.size.height/2.0f));
     retValue.size.width = xUpperValue-xLowerValue;
@@ -471,23 +491,44 @@ NSUInteger DeviceSystemMajorVersion() {
 }
 
 //returms the rect of the tumb image for a given track rect and value
-- (CGRect)thumbRectForValue:(float)value image:(UIImage*) thumbImage
+- (CGRect)lowerThumbRectForValue:(float)value image:(UIImage*)thumbImage
+{
+    CGRect thumbRect = [self thumbRectForImage:thumbImage];
+    CGFloat xValue = ((self.bounds.size.width-thumbRect.size.width-self.centersOffset)*((value - _minimumValue) / (_maximumValue - _minimumValue)));
+    return [self thumbRectForValue:value image:thumbImage thumbRect:thumbRect xValue:xValue];
+}
+
+- (CGRect)upperThumbRectForValue:(float)value image:(UIImage*)thumbImage
+{
+    CGRect thumbRect = [self thumbRectForImage:thumbImage];
+    float xValue = self.centersOffset + ((self.bounds.size.width-thumbRect.size.width-self.centersOffset)*((value - _minimumValue) / (_maximumValue - _minimumValue)));
+    return [self thumbRectForValue:value image:thumbImage thumbRect:thumbRect xValue:xValue];
+}
+
+- (CGRect)thumbRectForImage:(UIImage *)thumbImage
 {
     CGRect thumbRect;
     UIEdgeInsets insets = thumbImage.capInsets;
-
+    
     thumbRect.size = CGSizeMake(thumbImage.size.width, thumbImage.size.height);
     
     if(insets.top || insets.bottom)
     {
         thumbRect.size.height=self.bounds.size.height;
     }
-    
-    float xValue = ((self.bounds.size.width-thumbRect.size.width)*((value - _minimumValue) / (_maximumValue - _minimumValue)));
-    thumbRect.origin = CGPointMake(xValue, (self.bounds.size.height/2.0f) - (thumbRect.size.height/2.0f));
-    
-    return CGRectIntegral(thumbRect);
+    return thumbRect;
+}
 
+- (CGRect)thumbRectForValue:(float)value image:(UIImage*)thumbImage thumbRect:(CGRect)thumbRect xValue:(CGFloat)xValue
+{
+    thumbRect.origin = CGPointMake(xValue, (self.bounds.size.height/2.0f) - (thumbRect.size.height/2.0f));
+    CGFloat scale = [UIScreen mainScreen].scale;
+    thumbRect.size.width *= scale;
+    thumbRect.size.height *= scale;
+    thumbRect = CGRectIntegral(thumbRect);
+    thumbRect.size.width /= scale;
+    thumbRect.size.height /= scale;
+    return thumbRect;
 }
 
 // ------------------------------------------------------------------------------------------------------
@@ -511,12 +552,12 @@ NSUInteger DeviceSystemMajorVersion() {
     //------------------------------
     // Lower Handle Handle
     self.lowerHandle = [[UIImageView alloc] initWithImage:self.lowerHandleImageNormal highlightedImage:self.lowerHandleImageHighlighted];
-    self.lowerHandle.frame = [self thumbRectForValue:_lowerValue image:self.lowerHandleImageNormal];
+    self.lowerHandle.frame = [self lowerThumbRectForValue:_lowerValue image:self.lowerHandleImageNormal];
     
     //------------------------------
     // Upper Handle Handle
     self.upperHandle = [[UIImageView alloc] initWithImage:self.upperHandleImageNormal highlightedImage:self.upperHandleImageHighlighted];
-    self.upperHandle.frame = [self thumbRectForValue:_upperValue image:self.upperHandleImageNormal];
+    self.upperHandle.frame = [self upperThumbRectForValue:_upperValue image:self.upperHandleImageNormal];
     
     [self addSubview:self.trackBackground];
     [self addSubview:self.track];
@@ -548,13 +589,13 @@ NSUInteger DeviceSystemMajorVersion() {
     self.track.image = [self trackImageForCurrentValues];
 
     // Layout the lower handle
-    self.lowerHandle.frame = [self thumbRectForValue:_lowerValue image:self.lowerHandleImageNormal];
+    self.lowerHandle.frame = [self lowerThumbRectForValue:_lowerValue image:self.lowerHandleImageNormal];
     self.lowerHandle.image = self.lowerHandleImageNormal;
     self.lowerHandle.highlightedImage = self.lowerHandleImageHighlighted;
     self.lowerHandle.hidden = self.lowerHandleHidden;
     
     // Layoput the upper handle
-    self.upperHandle.frame = [self thumbRectForValue:_upperValue image:self.upperHandleImageNormal];
+    self.upperHandle.frame = [self upperThumbRectForValue:_upperValue image:self.upperHandleImageNormal];
     self.upperHandle.image = self.upperHandleImageNormal;
     self.upperHandle.highlightedImage = self.upperHandleImageHighlighted;
     self.upperHandle.hidden= self.upperHandleHidden;
@@ -613,61 +654,80 @@ NSUInteger DeviceSystemMajorVersion() {
     if(!_lowerHandle.highlighted && !_upperHandle.highlighted ){
         return YES;
     }
-    
-    //detect and enable push mode
+
     CGPoint touchPoint = [touch locationInView:self];
-    if (self.pushEnabled && !_pushHandle && _lowerValue + _minimumRange >= _upperValue) {
+
+    if (self.pushEnabled && !_pushHandle && !(_lowerHandle.highlighted && _upperHandle.highlighted)) {
+
         CGPoint previousTouchPoint = [touch previousLocationInView:self];
-        if (touchPoint.x > previousTouchPoint.x) {
-            _pushHandle = _lowerHandle;
-            if (!_upperHandle.highlighted) {
+        CGFloat distance = touchPoint.x - previousTouchPoint.x;
+        if (distance > 0 && _lowerHandle.highlighted) {
+            float newLowerValue = [self lowerValueForCenterX:(touchPoint.x - _lowerTouchOffset)];
+            float valueDistance = _lowerValue + _minimumRange - _upperValue;
+            float newValueDistance = newLowerValue + _minimumRange - _upperValue;
+            if (valueDistance <= 0 && newValueDistance >= 0) {
+                float alpha = -valueDistance / (newValueDistance - valueDistance);
+                // need the non-integral centerX
+                float upperCenterX = [self centerXForUpperValue:_upperValue];
+                _upperTouchOffset = previousTouchPoint.x + alpha * distance - upperCenterX;
                 _upperHandle.highlighted = YES;
-                _upperTouchOffset = previousTouchPoint.x - _upperHandle.center.x;
+                _pushHandle = _lowerHandle;
             }
-        } else {
-            _pushHandle = _upperHandle;
-            if (!_lowerHandle.highlighted) {
+        } else if (distance < 0 && _upperHandle.highlighted) {
+            float newUpperValue = [self upperValueForCenterX:(touchPoint.x - _upperTouchOffset)];
+            float valueDistance = _lowerValue + _minimumRange - _upperValue;
+            float newValueDistance = _lowerValue + _minimumRange - newUpperValue;
+            if (valueDistance <= 0 && newValueDistance >= 0) {
+                float alpha = -valueDistance / (newValueDistance - valueDistance);
+                // need the non-integral centerX
+                float lowerCenterX = [self centerXForLowerValue:_lowerValue];
+                _lowerTouchOffset = previousTouchPoint.x + alpha * distance - lowerCenterX;
                 _lowerHandle.highlighted = YES;
-                _lowerTouchOffset = previousTouchPoint.x - _lowerHandle.center.x;
+                _pushHandle = _upperHandle;
             }
         }
     }
+
+    float newLowerValue = _lowerValue;
+    float newUpperValue = _upperValue;
     
     if(_lowerHandle.highlighted)
     {
-        //get new lower value based on the touch location.
-        //This is automatically contained within a valid range.
-        float newValue = [self lowerValueForCenterX:(touchPoint.x - _lowerTouchOffset)];
-
+        float value = [self lowerValueForCenterX:(touchPoint.x - _lowerTouchOffset)];
+        
+        //decide if the upper value should be updated
+        if (value < _lowerValue || !_upperHandle.highlighted || _lowerHandle == _pushHandle) {
+            newLowerValue = value;
+        }
+        
         // decide if upper handle should be un-highlighted
-        if (_upperHandle.highlighted && newValue < _lowerValue && _upperHandle != _pushHandle) {
+        if (_upperHandle.highlighted && newLowerValue < _lowerValue && _upperHandle != _pushHandle) {
             _upperHandle.highlighted=NO;
             [self bringSubviewToFront:_lowerHandle];
             _pushHandle = nil;
-        }
-
-        //decide if the upper value should be updated
-        if (newValue < _lowerValue || !_upperHandle.highlighted || _lowerHandle == _pushHandle) {
-            [self setLowerValue:newValue animated:_stepValueContinuously ? YES : NO];
         }
     }
     
     if(_upperHandle.highlighted )
     {
-        float newValue = [self upperValueForCenterX:(touchPoint.x - _upperTouchOffset)];
+        float value = [self upperValueForCenterX:(touchPoint.x - _upperTouchOffset)];
+        
+        //decide if the upper value should be updated
+        if (value > _upperValue || !_lowerHandle.highlighted || _upperHandle == _pushHandle) {
+            newUpperValue = value;
+        }
 
         // decide if lower handle should be un-highlighted
-        if (_lowerHandle.highlighted && newValue > _upperValue && _lowerHandle != _pushHandle) {
+        if (_lowerHandle.highlighted && newUpperValue > _upperValue && _lowerHandle != _pushHandle) {
             _lowerHandle.highlighted=NO;
             [self bringSubviewToFront:_upperHandle];
             _pushHandle = nil;
         }
-        
-        //decide if the upper value should be updated
-        if (newValue > _upperValue || !_lowerHandle.highlighted || _upperHandle == _pushHandle) {
-            [self setUpperValue:newValue animated:_stepValueContinuously ? YES : NO];
-        }
     }
+
+//    [self setUpperValue:newUpperValue animated:NO];
+//    [self setLowerValue:newLowerValue animated:NO];
+    [self setLowerValue:newLowerValue upperValue:newUpperValue animated:_stepValueContinuously ? YES : NO];
     
     //send the control event
     if(_continuous)
