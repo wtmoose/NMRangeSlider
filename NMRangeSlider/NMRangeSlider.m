@@ -32,6 +32,7 @@ NSUInteger DeviceSystemMajorVersion() {
     CGPoint _touchDownPoint;
 }
 
+@property (assign, nonatomic) BOOL trackingTouches;
 @property (retain, nonatomic) UIImageView* lowerHandle;
 @property (retain, nonatomic) UIImageView* upperHandle;
 @property (retain, nonatomic) UIImageView* track;
@@ -108,27 +109,57 @@ NSUInteger DeviceSystemMajorVersion() {
 #pragma mark -
 #pragma mark - Properties
 
-- (CGPoint) lowerCenter
+- (CGPoint)lowerCenter
 {
     return _lowerHandle.center;
 }
 
-- (CGPoint) upperCenter
+- (CGPoint)upperCenter
 {
     return _upperHandle.center;
 }
 
-- (void) setLowerValue:(float)lowerValue
+- (void)setLowerValue:(float)lowerValue
 {
-    [self setLowerValue:lowerValue upperValue:_upperValue];
+    if (self.trackingTouches) { return; }
+    [self _setLowerValue:lowerValue];
 }
 
-- (void) setUpperValue:(float)upperValue
+- (void)setUpperValue:(float)upperValue
 {
-    [self setLowerValue:_lowerValue upperValue:upperValue];
+    if (self.trackingTouches) { return; }
+    [self _setUpperValue:upperValue];
 }
 
-- (void)setLowerValue:(float)lowerValue upperValue:(float)upperValue
+- (void)setLowerValue:(float)lowerValue animated:(BOOL) animated
+{
+    if (self.trackingTouches) { return; }
+    [self _setLowerValue:lowerValue upperValue:NAN animated:animated];
+}
+
+- (void)setUpperValue:(float)upperValue animated:(BOOL) animated
+{
+    if (self.trackingTouches) { return; }
+    [self _setLowerValue:NAN upperValue:upperValue animated:animated];
+}
+
+- (void)setLowerValue:(float)lowerValue upperValue:(float)upperValue animated:(BOOL)animated
+{
+    if (self.trackingTouches) { return; }
+    [self _setLowerValue:lowerValue upperValue:upperValue animated:animated];
+}
+
+- (void)_setLowerValue:(float)lowerValue
+{
+    [self _setLowerValue:lowerValue upperValue:_upperValue];
+}
+
+- (void)_setUpperValue:(float)upperValue
+{
+    [self _setLowerValue:_lowerValue upperValue:upperValue];
+}
+
+- (void)_setLowerValue:(float)lowerValue upperValue:(float)upperValue
 {
     if(_stepValueInternal > 0) {
         lowerValue = roundf(lowerValue / _stepValueInternal) * _stepValueInternal;
@@ -161,7 +192,7 @@ NSUInteger DeviceSystemMajorVersion() {
     [self setNeedsLayout];
 }
 
-- (void) setLowerValue:(float) lowerValue upperValue:(float) upperValue animated:(BOOL)animated
+- (void)_setLowerValue:(float)lowerValue upperValue:(float)upperValue animated:(BOOL)animated
 {
     if((!animated) && (isnan(lowerValue) || lowerValue==_lowerValue) && (isnan(upperValue) || upperValue==_upperValue))
     {
@@ -174,11 +205,11 @@ NSUInteger DeviceSystemMajorVersion() {
         if (isnan(lowerValue) && isnan(upperValue)) { return; }
         
         if (isnan(lowerValue)) {
-            [self setUpperValue:upperValue];
+            [self _setUpperValue:upperValue];
         } else if (isnan(upperValue)) {
-            [self setLowerValue:lowerValue];
+            [self _setLowerValue:lowerValue];
         } else {
-            [self setLowerValue:lowerValue upperValue:upperValue];
+            [self _setLowerValue:lowerValue upperValue:upperValue];
         }
         
     };
@@ -200,17 +231,6 @@ NSUInteger DeviceSystemMajorVersion() {
     {
         setValuesBlock();
     }
-
-}
-
-- (void)setLowerValue:(float)lowerValue animated:(BOOL) animated
-{
-    [self setLowerValue:lowerValue upperValue:NAN animated:animated];
-}
-
-- (void)setUpperValue:(float)upperValue animated:(BOOL) animated
-{
-    [self setLowerValue:NAN upperValue:upperValue animated:animated];
 }
 
 - (void) setLowerHandleHidden:(BOOL)lowerHandleHidden
@@ -593,13 +613,13 @@ NSUInteger DeviceSystemMajorVersion() {
     }
 }
 
-- (void)setTouchScalingBackgroundView:(UIView *)longPressBackgroundView
+- (void)setTouchScalingBackgroundView:(UIView *)touchScalingBackgroundView
 {
-    if (_touchScalingBackgroundView != longPressBackgroundView) {
+    if (_touchScalingBackgroundView != touchScalingBackgroundView) {
         [self removeLongPressBackgroundView:_touchScalingBackgroundView animated:NO];
-        _touchScalingBackgroundView = longPressBackgroundView;
+        _touchScalingBackgroundView = touchScalingBackgroundView;
         if (self.touchScalingActive) {
-            [self insertPressBackgroundView:longPressBackgroundView animated:NO];
+            [self insertPressBackgroundView:touchScalingBackgroundView animated:NO];
             [self setNeedsLayout];
         }
     }
@@ -629,13 +649,17 @@ NSUInteger DeviceSystemMajorVersion() {
     if (!view) { return; }
     if (animated) {
         CGFloat alpha = view.alpha;
-        [UIView animateWithDuration:0.22 delay:0 usingSpringWithDamping:1 initialSpringVelocity:2 options:UIViewAnimationOptionCurveEaseOut animations:^{
+        // TODO for some reason, without this small delay, the animation seems to disappear
+        // sometimes, i.e. the view just vanishes instantly. Need to figure out what's going on.
+        [UIView animateWithDuration:0.22 delay:0.1 usingSpringWithDamping:1 initialSpringVelocity:2 options:UIViewAnimationOptionCurveEaseOut animations:^{
             view.transform = CGAffineTransformMakeScale(0.5, 0.5);
             view.alpha = 0.0;
         } completion:^(BOOL finished) {
-            view.alpha = alpha;
-            view.transform = CGAffineTransformIdentity;
-            [view removeFromSuperview];
+            if (finished) {
+                view.alpha = alpha;
+                view.transform = CGAffineTransformIdentity;
+                [view removeFromSuperview];
+            }
         }];
     } else {
         [view removeFromSuperview];
@@ -745,6 +769,7 @@ NSUInteger DeviceSystemMajorVersion() {
 
 -(BOOL) beginTrackingWithTouch:(UITouch *)touch withEvent:(UIEvent *)event
 {
+    self.trackingTouches = YES;
     CGPoint touchPoint = [touch locationInView:self];
     _touchDownPoint = touchPoint;
     
@@ -844,9 +869,7 @@ NSUInteger DeviceSystemMajorVersion() {
         }
     }
 
-//    [self setUpperValue:newUpperValue animated:NO];
-//    [self setLowerValue:newLowerValue animated:NO];
-    [self setLowerValue:newLowerValue upperValue:newUpperValue animated:_stepValueContinuously ? YES : NO];
+    [self _setLowerValue:newLowerValue upperValue:newUpperValue animated:_stepValueContinuously ? YES : NO];
     
     //send the control event
     if(_continuous)
@@ -860,8 +883,6 @@ NSUInteger DeviceSystemMajorVersion() {
     return YES;
 }
 
-
-
 -(void)endTrackingWithTouch:(UITouch *)touch withEvent:(UIEvent *)event
 {
     _lowerHandle.highlighted = NO;
@@ -872,11 +893,13 @@ NSUInteger DeviceSystemMajorVersion() {
     {
         _stepValueInternal=_stepValue;
         
-        [self setLowerValue:_lowerValue animated:YES];
-        [self setUpperValue:_upperValue animated:YES];
+        [self _setLowerValue:_lowerValue upperValue:NAN animated:YES];
+        [self _setLowerValue:NAN upperValue:_upperValue animated:YES];
     }
     
     [self sendActionsForControlEvents:UIControlEventValueChanged];
+    self.trackingTouches = NO;
+    [self sendActionsForControlEvents:UIControlEventEditingDidEnd];
 }
 
 - (UIImageView *)touchedHandleWithPoint:(CGPoint)point
